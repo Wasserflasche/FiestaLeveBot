@@ -1,53 +1,58 @@
 import cv2
 import ctypes
+import os
 import pyautogui
 import time
 import datetime
-import numpy
+import numpy as np
 from ctypes import windll
 from ctypes import wintypes
 from multiprocessing import Process
 from pynput import keyboard
+from typing import Tuple
 
-#################################################### Config ####################################################### 
-
-classes = None
-with open("coco.names", "r") as f:
-    classes = f.read().strip().split("\n")
-net = cv2.dnn.readNet("yolov4.weights", "yolov4.cfg")
-toplist, winlist = [], []
-hpZero = (194, 188)
-hpFull = (hpZero[0] + 92, hpZero[1])
-mpZero = (hpZero[0] + 4, hpZero[1]  + 33)
-mpFull = (mpZero[0] + 92,hpZero[1] + 33)
-hpZero2 = (194, 70)
-hpFull2 = (hpZero2[0] + 92, hpZero2[1])
-mpZero2 = (hpZero2[0] + 4, hpZero2[1]  + 33)
-mpFull2 = (mpZero2[0] + 92,hpZero2[1] + 33)
-enemyPosition = (hpZero[0] + 523,hpZero[1] - 15)
-enemyHpPosition = (hpZero[0] + 518,hpZero[1] - 5)
-fighterPosition = (hpZero[0], hpZero[1] + 802)
-healerPosition = hpZero2
+resolution = (1920, 1080)
+currentPath = os.path.dirname(os.path.realpath(__file__))
 
 #################################################### Help Functions ####################################################### 
 
-def CheckPixel(index, value, lowValue, highValue, y, percent, screenshot):
-    return GetPixel((round(lowValue + (highValue - lowValue) * percent/100), y), screenshot)[index] < value
-  
-def GetPixel(position, screenshot):
+def CheckPixel(color: Tuple[int, int, int], lowValue: int, highValue: int, y: int, percent: int, screenshot: np.ndarray) -> bool:
+    target_color = GetPixel((round(lowValue + (highValue - lowValue) * percent/100), y), screenshot)
+    return not all(lower <= target <= upper for target, lower, upper in zip(target_color, [c - 5 for c in color], [c + 5 for c in color]))
+
+def GetColorFromCoords(position: Tuple [int, int]) -> Tuple[int, int, int]:
+    return Screenshot().getpixel(position)
+
+def GetCoordsFromDetection(image: np.ndarray) -> Tuple [int, int]:
+    screenshot = ScreenshotNp()
+    result = cv2.matchTemplate(screenshot, image, cv2.TM_CCOEFF_NORMED)
+    sorted_result_indices = np.argsort(result, axis=None)[::-1]
+    max_val_index = sorted_result_indices[0]
+    second_max_val_index = sorted_result_indices[1]
+    max_loc = np.unravel_index(max_val_index, result.shape)
+    second_max_loc = np.unravel_index(second_max_val_index, result.shape)
+    if result[max_loc] > 0.9:
+        return (max_loc[1], max_loc[0]), (second_max_loc[1], second_max_loc[0])
+    else:
+        return (0, 0), (0, 0)
+
+def GetPixel(position: Tuple [int, int], screenshot: np.ndarray) -> Tuple[int, int, int]:
     return screenshot.getpixel(position)
-   
-def ReadFromFile(fileName):
+
+def ReadFromFile(fileName: str) -> str:
     with open(fileName) as file:
         return file.read()
 
-def Screenshot():
-    return pyautogui.screenshot().convert("RGB")
+def ScreenshotNp() -> np.ndarray:
+    return cv2.cvtColor(np.array(pyautogui.screenshot().convert('RGB')), cv2.COLOR_RGB2BGR)
 
-def WriteToFile(fileName, input):
+def Screenshot():
+    return pyautogui.screenshot().convert('RGB')
+
+def WriteToFile(fileName: str, input: str):
     with open(fileName, "w") as file:
         file.write(str(input))   
-   
+
 ############################################################################################### Mouse and Keyboard ##############################################################################################################    
       
 #Keyboard: keyboard.Controller = keyboard.Controller()   
@@ -68,6 +73,7 @@ e = 0x45
 k = 0x4B
 q = 0x51
 s = 0x53
+esc = 0x1B
 skills = [three, four, five, six, seven]
 user32 = ctypes.WinDLL('user32', use_last_error=True)
 
@@ -139,8 +145,8 @@ def MouseClick():
     InputSleep()
    
 def MoveMouseTo(position):
-    x_normalized = int(65535 * (position[0] / 1920))
-    y_normalized = int(65535 * (position[1] / 1080))
+    x_normalized = int(65535 * (position[0] / resolution[0]))
+    y_normalized = int(65535 * (position[1] / resolution[1]))
     ctypes.windll.user32.mouse_event(MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE, x_normalized, y_normalized, 0, 0)   
     InputSleep()
    
@@ -177,7 +183,7 @@ def ReleaseKey(hexKeyCode):
     time.sleep(0.035)
     
 def On_press(key):
-    if any([key in z for z in [{keyboard.Key.shift, keyboard.KeyCode(char='ö')}, {keyboard.Key.shift, keyboard.KeyCode(char='Ö')}]]):
+    if any([key in z for z in [{keyboard.Key.shift}]]):
         if ReadFromFile("stop.txt") == "0":
             WriteToFile("stop.txt", "1")
         else:
@@ -185,39 +191,74 @@ def On_press(key):
  
 def InputSleep():
     time.sleep(0.02) 
-     
+
+ #################################################### Config ####################################################### 
+
+baseCoords, baseCoords2 = GetCoordsFromDetection(cv2.imread(currentPath + "\\WindowDetect.png"))
+if baseCoords[1] < baseCoords2[1]:
+    saveCoords = baseCoords
+    baseCoords = baseCoords2
+    baseCoords2 = saveCoords
+MoveMouseTo((baseCoords[0] + 14, baseCoords[1] + 250))
+MouseClick()
+MouseClick()
+toplist, winlist = [], []
+hpZero = (baseCoords[0] + 181, baseCoords[1] + 64)
+hpFull = (hpZero[0] + 85, hpZero[1])
+mpZero = (hpZero[0] + 4, hpZero[1]  + 33)
+mpFull = (mpZero[0] + 85,hpZero[1] + 33)
+hpZero2 = (baseCoords2[0] + 181, baseCoords2[1] + 64)
+hpFull2 = (hpZero2[0] + 85, hpZero2[1])
+mpZero2 = (hpZero2[0] + 4, hpZero2[1]  + 33)
+mpFull2 = (mpZero2[0] + 85,hpZero2[1] + 33)
+enemyCoords, enemyCoords2 = GetCoordsFromDetection(cv2.imread(currentPath + "\\enemy.png"))
+if enemyCoords[1] < enemyCoords2[1]:
+    enemyCoords = enemyCoords2
+enemyPosition = (enemyCoords[0] -97 , enemyCoords[1] + 5)
+enemyPositionExit = (enemyCoords[0] -5 , enemyCoords[1] - 4)
+partyPosition = (baseCoords2[0] + 14, baseCoords2[1] + 250)
+fighterPosition = (hpZero[0], hpZero[1] + 802)
+healerPosition = hpZero2
+hpColor = GetColorFromCoords(hpZero)
+mpColor = GetColorFromCoords(mpZero)
+enemyHpColor = GetColorFromCoords(enemyPosition)
+enemyExitColor = GetColorFromCoords(enemyPositionExit)
+PressKey(esc)
+
 ############################################################################################### Main Functions #####################################################################################################
 
 def Attack():
-    #ts = datetime.datetime.now()
-    screenshot = Screenshot()
-    #while MonsterNotHit(screenshot):
-        #PressKey(one)
-        #PressKey(two)
-        #RefreshProcess(50, screenshot)
-        #screenshot = Screenshot() 
-        #if CheckStuck(ts):
-            #return 1
     ts = datetime.datetime.now()
-    rgb = GetPixel(enemyPosition, screenshot)
+    screenshot = Screenshot()
+    while MonsterNotHit(screenshot):
+        PressKey(one)
+        PressKey(two)
+        time.sleep(0.1)
+        RefreshProcess(50, screenshot)
+        screenshot = Screenshot()
+        if CheckStuck(ts):
+            return 1
     while True:
         for i in range(5):
             PressKey(skills[i])
             screenshot = Screenshot()
-            rgb = GetPixel(enemyPosition, screenshot)
-            if rgb[0] < 220 or rgb[1] < 220 or rgb[2] < 220:
+            if enemyExitColor != GetPixel(enemyPositionExit, screenshot):
                 return 0
             PressKey(two)
-        RefreshProcess(50, screenshot)
+            RefreshProcess(50, screenshot)
         if CheckStuck(ts):
             return 1
 
 def CheckStuck(ts):
-    if (datetime.datetime.now() - ts).total_seconds() > 20:
+    if (datetime.datetime.now() - ts).total_seconds() > 20 or PlayerWasSelect():
+        PressKey(esc)
+        KeyDown(s)
         KeyDown(s)
         time.sleep(3)
         ReleaseKey(s)
         time.sleep(0.1)
+        Rotate()
+        Rotate()
         Rotate()
         return True
     return False
@@ -226,40 +267,47 @@ def FiestaBot():
     WriteToFile("stop.txt", "1")
     while True:
         if ReadFromFile("stop.txt") == "0":
+            #CheckStuck(datetime.datetime.now()- datetime.timedelta(seconds=21))
             if FindMonster():
                 Attack()
             else:
                 Rotate()
         else:
             InputSleep()    
-        
+        1111111111111111
 def FindMonster():
     PressKey(k)
-    pixel = GetPixel(enemyPosition, Screenshot())
-    return pixel[0] > 220 and pixel[1] > 220 and pixel[2] > 220 
+    return GetPixel(enemyPositionExit, Screenshot()) == enemyExitColor
 
 def MonsterNotHit(screenshot): 
-    return GetPixel(enemyHpPosition, screenshot)[0] > 60  
+    return GetPixel(enemyPosition, screenshot) != enemyHpColor
+
+def PlayerWasSelect():
+    return GetPixel((enemyCoords[0] + 3, baseCoords[1] + 3), Screenshot()) == (255, 243, 68)
 
 def RefreshProcess(percent, screenshot):
     # Healer healq
-    if CheckPixel(0, 120, hpZero[0], hpFull[0], hpFull[1], percent + 20, screenshot):
+    if CheckPixel(hpColor, hpZero[0], hpFull[0], hpFull[1], percent + 20, screenshot):
         TargetHealer()
         PressKey(one)     
         TargetFighter()
     # Stone heal
-    if CheckPixel(0, 120, hpZero[0], hpFull[0], hpFull[1], percent, screenshot):
+    if CheckPixel(hpColor, hpZero[0], hpFull[0], hpFull[1], percent, screenshot):
         PressKey(q)
-    if CheckPixel(2, 120, mpZero[0], mpFull[0], mpFull[1], (percent - 20), screenshot):
+    if CheckPixel(mpColor, mpZero[0], mpFull[0], mpFull[1], (percent - 20), screenshot):
         PressKey(e)
-    # Healer stone heal
-    if CheckPixel(0, 120, hpZero2[0], hpFull2[0], hpFull2[1], percent, screenshot):
+    # Healer heal
+    if CheckPixel(hpColor, hpZero2[0], hpFull2[0], hpFull2[1], percent, screenshot):
         TargetHealer()
-        PressKey(q)
-        if CheckPixel(2, 120, mpZero2[0], mpFull2[0], mpFull2[1], percent, screenshot):
+        PressKey(esc)
+        PressKey(one)
+        MoveMouseTo(partyPosition)
+        MouseClick()
+        TargetFighter()
+        if CheckPixel(mpColor, mpZero2[0], mpFull2[0], mpFull2[1], percent, screenshot):
             PressKey(e)
         TargetFighter()
-    elif CheckPixel(2, 120, mpZero2[0], mpFull2[0], mpFull2[1], (percent - 20), screenshot):
+    elif CheckPixel(mpColor, mpZero2[0], mpFull2[0], mpFull2[1], (percent - 20), screenshot):
         TargetHealer()
         PressKey(e)
         TargetFighter()
